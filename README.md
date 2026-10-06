@@ -50,6 +50,8 @@ Useful commands:
     otpick lock
     otpick status
     otpick list
+    otpick backup
+    otpick backup /mnt/archive/otpick
 
 The popup never performs Argon2 when the vault is already session-unlocked.
 
@@ -91,6 +93,14 @@ or, when XDG_DATA_HOME is unset:
 
 For development/testing, OTPICK_VAULT can override the full vault path. Existing override-parent permissions are not modified.
 
+## Backups
+
+`otpick backup` creates a byte-for-byte snapshot of the encrypted vault. It never decrypts secrets into a backup format and does not maintain a second cryptographic format.
+
+The default backup directory is a `backups` directory beside the vault. Set `OTPICK_BACKUP_DIR` or pass an explicit directory to place snapshots on a separate archival disk.
+
+Backup files are mode 0600 and the destination is fsynced before the command returns.
+
 ## Security model
 
 OTPick protects the vault at rest and avoids plaintext secret files.
@@ -99,7 +109,7 @@ While unlocked, the vault key is intentionally available to processes possessing
 
 ## Next
 
-With text, Google migration, and image/QR ingestion in place, the next major target is startup/first-frame latency measurement and then encrypted archival backups. If image/import dependencies materially hurt the picker cold start, management/import will be split into a companion binary rather than weakening the latency contract.
+With ingestion and encrypted archival snapshots in place, the next major target is startup/first-frame latency measurement. If management/import dependencies materially hurt picker cold start, those commands will be split into a companion binary rather than weakening the latency contract.
 
 ## License
 

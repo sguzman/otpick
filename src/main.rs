@@ -1,4 +1,5 @@
 mod app;
+mod backup;
 mod clipboard;
 mod ingest;
 mod model;
@@ -39,6 +40,17 @@ fn run() -> Result<(), Box<dyn Error>> {
         Some("status") => status()?,
         Some("list") => list_accounts()?,
         Some("add") => add_account()?,
+        Some("backup") => {
+            let directory = args.next().map(PathBuf::from);
+            if args.next().is_some() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "backup accepts at most one destination directory",
+                )
+                .into());
+            }
+            backup_vault(directory.as_deref())?;
+        }
         Some("import") => {
             let sources: Vec<String> = args.collect();
             if sources.is_empty() {
@@ -182,6 +194,18 @@ fn add_account() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn backup_vault(destination: Option<&Path>) -> Result<(), Box<dyn Error>> {
+    let (vault_path, _) = open_unlocked_vault()?;
+    let backup_dir = match destination {
+        Some(path) => path.to_path_buf(),
+        None => paths::backup_dir()?,
+    };
+
+    let backup_path = backup::create(&vault_path, &backup_dir)?;
+    println!("Backup created: {}", backup_path.display());
+    Ok(())
+}
+
 fn import_accounts(sources: &[String]) -> Result<(), Box<dyn Error>> {
     if sources.len() > 1 && sources.iter().any(|source| source == "-") {
         return Err(io::Error::new(
@@ -292,6 +316,7 @@ fn print_help() {
     println!("  otpick status      Show vault and session state");
     println!("  otpick list        List account labels without exposing codes");
     println!("  otpick add         Interactively add a normal SHA1/6-digit/30s TOTP");
+    println!("  otpick backup [DIR] Snapshot the encrypted vault");
     println!("  otpick import SRC... Import text or QR image sources (PNG/JPEG/WebP)");
     println!("  otpick import -      Import OTP URI lines from stdin");
     println!("  otpick --help      Show this help");
