@@ -1,13 +1,16 @@
+use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
-#[allow(dead_code)] // SHA-256/512 become live when vault/import wiring lands.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[allow(dead_code)] // SHA-256/512 become live through imported accounts.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum OtpAlgorithm {
     Sha1,
     Sha256,
     Sha512,
 }
 
+#[derive(Deserialize, Serialize)]
 pub struct Account {
     pub issuer: String,
     pub account: String,
@@ -18,7 +21,7 @@ pub struct Account {
 }
 
 impl Account {
-    #[allow(dead_code)] // Production construction is owned by the upcoming vault/import layer.
+    #[allow(dead_code)] // Construction becomes public-facing with the importer.
     pub fn new(
         issuer: impl Into<String>,
         account: impl Into<String>,

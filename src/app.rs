@@ -10,11 +10,16 @@ pub struct PickerApp {
     ranked: Vec<usize>,
     selected: usize,
     focus_initialized: bool,
+    notice: Option<String>,
     error: Option<String>,
 }
 
 impl PickerApp {
-    pub fn new(cc: &eframe::CreationContext<'_>, accounts: Vec<Account>) -> Self {
+    pub fn new(
+        cc: &eframe::CreationContext<'_>,
+        accounts: Vec<Account>,
+        notice: Option<String>,
+    ) -> Self {
         cc.egui_ctx.set_visuals(egui::Visuals::dark());
 
         let ranked = rank_accounts(&accounts, "");
@@ -25,6 +30,7 @@ impl PickerApp {
             ranked,
             selected: 0,
             focus_initialized: false,
+            notice,
             error: None,
         }
     }
@@ -104,8 +110,10 @@ impl eframe::App for PickerApp {
             ui.separator();
             ui.add_space(4.0);
 
-            if self.accounts.is_empty() {
-                ui.label("No accounts yet. Encrypted vault + import are the next layer.");
+            if let Some(notice) = &self.notice {
+                ui.label(notice);
+            } else if self.accounts.is_empty() {
+                ui.label("No accounts in the vault.");
             } else if self.ranked.is_empty() {
                 ui.label("No matches.");
             } else {
