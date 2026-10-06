@@ -21,10 +21,10 @@ pub fn parse_otpauth_document(input: &str) -> Result<Vec<Account>, IngestError> 
 }
 
 pub fn parse_otpauth(uri: &str) -> Result<Account, IngestError> {
-    let remainder = uri.strip_prefix(PREFIX).ok_or(IngestError::UnsupportedUri)?;
-    let (raw_label, raw_query) = remainder
-        .split_once('?')
-        .ok_or(IngestError::MissingQuery)?;
+    let remainder = uri
+        .strip_prefix(PREFIX)
+        .ok_or(IngestError::UnsupportedUri)?;
+    let (raw_label, raw_query) = remainder.split_once('?').ok_or(IngestError::MissingQuery)?;
 
     let label = decode_component(raw_label, false, "label")?;
     let (label_issuer, account) = match label.split_once(':') {
@@ -58,7 +58,8 @@ pub fn parse_otpauth(uri: &str) -> Result<Account, IngestError> {
     }
 
     let secret = secret.ok_or(IngestError::MissingSecret)?;
-    let secret = Secret::try_from_base32(secret.as_str()).map_err(|_| IngestError::InvalidSecret)?;
+    let secret =
+        Secret::try_from_base32(secret.as_str()).map_err(|_| IngestError::InvalidSecret)?;
 
     let algorithm = parse_algorithm(algorithm.as_deref().unwrap_or("SHA1"))?;
     let digits = parse_digits(digits.as_deref().unwrap_or("6"))?;
@@ -186,10 +187,7 @@ fn set_once(
     Ok(())
 }
 
-fn set_once_secret(
-    slot: &mut Option<Zeroizing<String>>,
-    value: String,
-) -> Result<(), IngestError> {
+fn set_once_secret(slot: &mut Option<Zeroizing<String>>, value: String) -> Result<(), IngestError> {
     if slot.replace(Zeroizing::new(value)).is_some() {
         return Err(IngestError::DuplicateParameter("secret"));
     }
@@ -269,9 +267,7 @@ mod tests {
 
     #[test]
     fn rejects_issuer_mismatch() {
-        let uri = format!(
-            "otpauth://totp/GitHub:alice?secret={SECRET}&issuer=GitLab"
-        );
+        let uri = format!("otpauth://totp/GitHub:alice?secret={SECRET}&issuer=GitLab");
 
         assert!(matches!(
             parse_otpauth(&uri),
