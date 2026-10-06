@@ -31,9 +31,7 @@ impl PickerApp {
 
     fn refresh_ranking(&mut self) {
         self.ranked = rank_accounts(&self.accounts, &self.query);
-        self.selected = self
-            .selected
-            .min(self.ranked.len().saturating_sub(1));
+        self.selected = self.selected.min(self.ranked.len().saturating_sub(1));
     }
 
     fn move_selection(&mut self, delta: isize) {
@@ -67,7 +65,9 @@ impl PickerApp {
 }
 
 impl eframe::App for PickerApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+
         if ctx.input(|input| input.key_pressed(egui::Key::Escape)) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             return;
@@ -80,7 +80,7 @@ impl eframe::App for PickerApp {
             self.move_selection(1);
         }
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.add_space(10.0);
 
             let response = ui.add(
@@ -128,7 +128,7 @@ impl eframe::App for PickerApp {
         });
 
         if ctx.input(|input| input.key_pressed(egui::Key::Enter)) {
-            self.copy_selected_and_close(ctx);
+            self.copy_selected_and_close(&ctx);
         }
     }
 }
