@@ -54,10 +54,7 @@ mod tests {
     fn decodes_rendered_qr_payload() {
         let payload = "otpauth://totp/GitHub:alice?secret=GEZDGNBVGY3TQOJQ&issuer=GitHub";
         let code = QrCode::new(payload.as_bytes()).unwrap();
-        let image = code
-            .render::<Luma<u8>>()
-            .min_dimensions(512, 512)
-            .build();
+        let image = code.render::<Luma<u8>>().min_dimensions(512, 512).build();
 
         let decoded = decode_image(image).unwrap();
 
