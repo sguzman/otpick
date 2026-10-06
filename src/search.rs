@@ -90,14 +90,7 @@ mod tests {
     use crate::model::{Account, OtpAlgorithm};
 
     fn account(issuer: &str, name: &str) -> Account {
-        Account::new(
-            issuer,
-            name,
-            vec![0; 20],
-            OtpAlgorithm::Sha1,
-            6,
-            30,
-        )
+        Account::new(issuer, name, vec![0; 20], OtpAlgorithm::Sha1, 6, 30)
     }
 
     #[test]
