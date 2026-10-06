@@ -111,9 +111,7 @@ fn run_picker(startup_trace: startup::StartupTrace) -> eframe::Result {
     )
 }
 
-fn load_picker_accounts(
-    startup_trace: &startup::StartupTrace,
-) -> (Vec<Account>, Option<String>) {
+fn load_picker_accounts(startup_trace: &startup::StartupTrace) -> (Vec<Account>, Option<String>) {
     let path = match paths::vault_path() {
         Ok(path) => path,
         Err(error) => return (Vec::new(), Some(error.to_string())),
@@ -143,7 +141,7 @@ fn load_picker_accounts(
         Ok(vault) => {
             startup_trace.mark("vault-decrypted");
             (vault.into_accounts(), None)
-        },
+        }
         Err(error) => {
             let _ = session::clear();
             (

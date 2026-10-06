@@ -15,10 +15,7 @@ impl StartupTrace {
 
     pub fn mark(&self, label: &str) {
         if let Some(start) = self.start {
-            eprintln!(
-                "otpick-startup {label} {}us",
-                start.elapsed().as_micros()
-            );
+            eprintln!("otpick-startup {label} {}us", start.elapsed().as_micros());
         }
     }
 }
