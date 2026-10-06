@@ -234,12 +234,9 @@ impl Header {
             return Err(VaultError::InvalidHeader);
         }
 
-        let memory_kib =
-            u32::from_le_bytes(bytes[12..16].try_into().expect("fixed header slice"));
-        let iterations =
-            u32::from_le_bytes(bytes[16..20].try_into().expect("fixed header slice"));
-        let parallelism =
-            u32::from_le_bytes(bytes[20..24].try_into().expect("fixed header slice"));
+        let memory_kib = u32::from_le_bytes(bytes[12..16].try_into().expect("fixed header slice"));
+        let iterations = u32::from_le_bytes(bytes[16..20].try_into().expect("fixed header slice"));
+        let parallelism = u32::from_le_bytes(bytes[20..24].try_into().expect("fixed header slice"));
 
         let mut salt = [0_u8; SALT_LEN];
         salt.copy_from_slice(&bytes[24..40]);
@@ -285,10 +282,11 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), VaultError> {
         .parent()
         .ok_or_else(|| VaultError::InvalidPath(path.to_path_buf()))?;
 
-    let mut builder = fs::DirBuilder::new();
-    builder.recursive(true).mode(0o700);
-    builder.create(parent)?;
-    fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
+    if !parent.exists() {
+        let mut builder = fs::DirBuilder::new();
+        builder.recursive(true).mode(0o700);
+        builder.create(parent)?;
+    }
 
     let mut suffix = [0_u8; 8];
     fill_random(&mut suffix)?;
@@ -389,9 +387,11 @@ mod tests {
         original.header.rotate_nonce().unwrap();
         let bytes = original.encode().unwrap();
 
-        assert!(!bytes
-            .windows("alice@example.com".len())
-            .any(|window| window == b"alice@example.com"));
+        assert!(
+            !bytes
+                .windows("alice@example.com".len())
+                .any(|window| window == b"alice@example.com")
+        );
 
         let header = Header::parse(&bytes).unwrap();
         let key = derive_key(b"correct horse battery staple", &header).unwrap();

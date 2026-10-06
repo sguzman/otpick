@@ -1,6 +1,4 @@
-use linux_keyutils::{
-    KeyError, KeyPermissionsBuilder, KeyRing, KeyRingIdentifier, Permission,
-};
+use linux_keyutils::{KeyError, KeyPermissionsBuilder, KeyRing, KeyRingIdentifier, Permission};
 use zeroize::Zeroize;
 
 use crate::vault::VaultKey;

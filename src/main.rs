@@ -162,7 +162,9 @@ fn list_accounts() -> Result<(), Box<dyn Error>> {
 fn new_passphrase() -> Result<Zeroizing<String>, Box<dyn Error>> {
     let first = Zeroizing::new(rpassword::prompt_password("New OTPick passphrase: ")?);
     if first.is_empty() {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "passphrase cannot be empty").into());
+        return Err(
+            io::Error::new(io::ErrorKind::InvalidInput, "passphrase cannot be empty").into(),
+        );
     }
 
     let second = Zeroizing::new(rpassword::prompt_password("Confirm passphrase: ")?);
