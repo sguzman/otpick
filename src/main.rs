@@ -16,7 +16,6 @@ use std::path::PathBuf;
 use app::PickerApp;
 use eframe::egui;
 use model::Account;
-use totp_rs::Secret;
 use vault::Vault;
 use zeroize::Zeroizing;
 

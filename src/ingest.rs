@@ -65,7 +65,7 @@ pub fn parse_otpauth(uri: &str) -> Result<Account, IngestError> {
     let digits = parse_digits(digits.as_deref().unwrap_or("6"))?;
     let period = parse_period(period.as_deref().unwrap_or("30"))?;
 
-    let query_issuer = query_issuer.and_then(|issuer| nonempty_owned(issuer));
+    let query_issuer = query_issuer.and_then(nonempty_owned);
     if let (Some(label_issuer), Some(query_issuer)) = (&label_issuer, &query_issuer)
         && label_issuer != query_issuer
     {
