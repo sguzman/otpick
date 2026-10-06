@@ -1,5 +1,6 @@
 use zeroize::Zeroizing;
 
+#[allow(dead_code)] // SHA-256/512 become live when vault/import wiring lands.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OtpAlgorithm {
     Sha1,
@@ -17,6 +18,7 @@ pub struct Account {
 }
 
 impl Account {
+    #[allow(dead_code)] // Production construction is owned by the upcoming vault/import layer.
     pub fn new(
         issuer: impl Into<String>,
         account: impl Into<String>,
