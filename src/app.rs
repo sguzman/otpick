@@ -1,6 +1,7 @@
 use crate::clipboard::copy_sensitive;
 use crate::model::Account;
 use crate::search::rank_accounts;
+use crate::startup::StartupTrace;
 use crate::totp::generate_current;
 use eframe::egui;
 
@@ -12,6 +13,8 @@ pub struct PickerApp {
     focus_initialized: bool,
     notice: Option<String>,
     error: Option<String>,
+    startup_trace: StartupTrace,
+    first_frame_traced: bool,
 }
 
 impl PickerApp {
@@ -19,9 +22,11 @@ impl PickerApp {
         cc: &eframe::CreationContext<'_>,
         accounts: Vec<Account>,
         notice: Option<String>,
+        startup_trace: StartupTrace,
     ) -> Self {
         cc.egui_ctx.set_visuals(egui::Visuals::dark());
 
+        startup_trace.mark("egui-app-created");
         let ranked = rank_accounts(&accounts, "");
 
         Self {
@@ -32,6 +37,8 @@ impl PickerApp {
             focus_initialized: false,
             notice,
             error: None,
+            startup_trace,
+            first_frame_traced: false,
         }
     }
 
@@ -72,6 +79,11 @@ impl PickerApp {
 
 impl eframe::App for PickerApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        if !self.first_frame_traced {
+            self.startup_trace.mark("first-frame");
+            self.first_frame_traced = true;
+        }
+
         let ctx = ui.ctx().clone();
 
         if ctx.input(|input| input.key_pressed(egui::Key::Escape)) {

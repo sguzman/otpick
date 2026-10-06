@@ -7,6 +7,7 @@ mod paths;
 mod qr;
 mod search;
 mod session;
+mod startup;
 mod totp;
 mod vault;
 
@@ -22,13 +23,16 @@ use vault::Vault;
 use zeroize::Zeroizing;
 
 fn main() {
-    if let Err(error) = run() {
+    let startup_trace = startup::StartupTrace::from_env();
+    startup_trace.mark("process-entry");
+
+    if let Err(error) = run(&startup_trace) {
         eprintln!("otpick: {error}");
         std::process::exit(1);
     }
 }
 
-fn run() -> Result<(), Box<dyn Error>> {
+fn run(startup_trace: &startup::StartupTrace) -> Result<(), Box<dyn Error>> {
     let mut args = std::env::args().skip(1);
 
     match args.next().as_deref() {
@@ -69,14 +73,16 @@ fn run() -> Result<(), Box<dyn Error>> {
             )
             .into());
         }
-        None => run_picker()?,
+        None => run_picker(startup_trace.clone())?,
     }
 
     Ok(())
 }
 
-fn run_picker() -> eframe::Result {
-    let (accounts, notice) = load_picker_accounts();
+fn run_picker(startup_trace: startup::StartupTrace) -> eframe::Result {
+    startup_trace.mark("picker-entry");
+    let (accounts, notice) = load_picker_accounts(&startup_trace);
+    startup_trace.mark("accounts-loaded");
 
     let options = eframe::NativeOptions {
         renderer: eframe::Renderer::Glow,
@@ -90,14 +96,24 @@ fn run_picker() -> eframe::Result {
         ..Default::default()
     };
 
+    startup_trace.mark("run-native-enter");
     eframe::run_native(
         "OTPick",
         options,
-        Box::new(move |cc| Ok(Box::new(PickerApp::new(cc, accounts, notice)))),
+        Box::new(move |cc| {
+            Ok(Box::new(PickerApp::new(
+                cc,
+                accounts,
+                notice,
+                startup_trace.clone(),
+            )))
+        }),
     )
 }
 
-fn load_picker_accounts() -> (Vec<Account>, Option<String>) {
+fn load_picker_accounts(
+    startup_trace: &startup::StartupTrace,
+) -> (Vec<Account>, Option<String>) {
     let path = match paths::vault_path() {
         Ok(path) => path,
         Err(error) => return (Vec::new(), Some(error.to_string())),
@@ -110,6 +126,7 @@ fn load_picker_accounts() -> (Vec<Account>, Option<String>) {
         );
     }
 
+    startup_trace.mark("vault-path-ready");
     let key = match session::load() {
         Ok(Some(key)) => key,
         Ok(None) => {
@@ -121,8 +138,12 @@ fn load_picker_accounts() -> (Vec<Account>, Option<String>) {
         Err(error) => return (Vec::new(), Some(error.to_string())),
     };
 
+    startup_trace.mark("session-key-loaded");
     match Vault::open_with_key(&path, key) {
-        Ok(vault) => (vault.into_accounts(), None),
+        Ok(vault) => {
+            startup_trace.mark("vault-decrypted");
+            (vault.into_accounts(), None)
+        },
         Err(error) => {
             let _ = session::clear();
             (

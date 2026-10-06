@@ -93,6 +93,12 @@ or, when XDG_DATA_HOME is unset:
 
 For development/testing, OTPICK_VAULT can override the full vault path. Existing override-parent permissions are not modified.
 
+## Startup tracing
+
+Set `OTPICK_TRACE_STARTUP=1` when launching the picker to emit microsecond timestamps for process entry, session-key retrieval, vault decryption, egui app creation, and first frame.
+
+The trace is opt-in and does not run logging work during normal launches. It exists specifically to protect the picker latency contract with measurements from the actual Linux/Hyprland machine.
+
 ## Backups
 
 `otpick backup` creates a byte-for-byte snapshot of the encrypted vault. It never decrypts secrets into a backup format and does not maintain a second cryptographic format.
@@ -109,7 +115,7 @@ While unlocked, the vault key is intentionally available to processes possessing
 
 ## Next
 
-With ingestion and encrypted archival snapshots in place, the next major target is startup/first-frame latency measurement. If management/import dependencies materially hurt picker cold start, those commands will be split into a companion binary rather than weakening the latency contract.
+With ingestion, encrypted archival snapshots, and startup tracing in place, the next major target is measuring the release binary on the real Hyprland machine. If management/import dependencies materially hurt picker cold start, those commands will be split into a companion binary rather than weakening the latency contract.
 
 ## License
 
