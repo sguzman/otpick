@@ -30,9 +30,13 @@ Add a normal account interactively:
 
     otpick add
 
-Or import one or more standard otpauth TOTP URIs or Google Authenticator migration payloads from a text file:
+Or import standard otpauth URIs, Google Authenticator migration payloads, or QR images:
 
     otpick import accounts.txt
+    otpick import google-auth.png
+    otpick import google-auth-1.png google-auth-2.png
+
+PNG, JPEG, and WebP QR images are supported. Multiple image arguments are decoded into one import transaction, which is important for Google Authenticator exports split across several QR codes.
 
 Stdin is supported too:
 
@@ -65,7 +69,7 @@ If the vault is locked, the picker tells the user to run otpick unlock. Unlockin
 
 The text importer accepts standard otpauth://totp URIs with SHA1, SHA256, or SHA512, 6-8 digits, and configurable period. It also decodes Google Authenticator otpauth-migration payloads, maps supported algorithms/digit counts, rejects HOTP entries, and assembles complete multi-part export batches before writing the vault. Missing standard-URI algorithm/digits/period values default to SHA1/6/30.
 
-An import file may contain multiple URI lines. The entire import is validated before the encrypted vault is rewritten, and duplicate issuer/account identities are rejected.
+An import file may contain multiple URI lines. QR images may contain one or more detected codes, and multiple image files may be supplied together. The entire combined import is validated before the encrypted vault is rewritten, and duplicate issuer/account identities are rejected.
 
 Manual add intentionally defaults to the overwhelmingly common SHA1, six-digit, 30-second profile. More advanced manual editing belongs in management UI rather than the normal picker.
 
@@ -95,7 +99,7 @@ While unlocked, the vault key is intentionally available to processes possessing
 
 ## Next
 
-The next ingestion layer is image/QR decoding so Google Authenticator export screenshots can feed the migration parser directly. After image import is reliable, startup/first-frame latency becomes the primary optimization target.
+With text, Google migration, and image/QR ingestion in place, the next major target is startup/first-frame latency measurement and then encrypted archival backups. If image/import dependencies materially hurt the picker cold start, management/import will be split into a companion binary rather than weakening the latency contract.
 
 ## License
 

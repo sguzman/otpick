@@ -3,6 +3,7 @@ mod clipboard;
 mod ingest;
 mod model;
 mod paths;
+mod qr;
 mod search;
 mod session;
 mod totp;
@@ -11,7 +12,7 @@ mod vault;
 use std::error::Error;
 use std::fs::File;
 use std::io::{self, Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use app::PickerApp;
 use eframe::egui;
@@ -39,20 +40,15 @@ fn run() -> Result<(), Box<dyn Error>> {
         Some("list") => list_accounts()?,
         Some("add") => add_account()?,
         Some("import") => {
-            let source = args.next().ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "import requires a file path or - for stdin",
-                )
-            })?;
-            if args.next().is_some() {
+            let sources: Vec<String> = args.collect();
+            if sources.is_empty() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
-                    "import accepts exactly one source",
+                    "import requires at least one file path or - for stdin",
                 )
                 .into());
             }
-            import_accounts(&source)?;
+            import_accounts(&sources)?;
         }
         Some(other) => {
             return Err(io::Error::new(
@@ -186,22 +182,56 @@ fn add_account() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn import_accounts(source: &str) -> Result<(), Box<dyn Error>> {
-    let mut input = String::new();
-
-    if source == "-" {
-        io::stdin().read_to_string(&mut input)?;
-    } else {
-        File::open(source)?.read_to_string(&mut input)?;
+fn import_accounts(sources: &[String]) -> Result<(), Box<dyn Error>> {
+    if sources.len() > 1 && sources.iter().any(|source| source == "-") {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "stdin (-) cannot be combined with other import sources",
+        )
+        .into());
     }
 
-    let input = Zeroizing::new(input);
+    let mut input = Zeroizing::new(String::new());
+
+    for source in sources {
+        if !input.is_empty() && !input.ends_with('\n') {
+            input.push('\n');
+        }
+
+        if source == "-" {
+            io::stdin().read_to_string(&mut input)?;
+            continue;
+        }
+
+        let path = Path::new(source);
+        if is_image_source(path) {
+            let payloads = qr::decode_file(path)?;
+            for payload in payloads {
+                input.push_str(payload.as_str());
+                input.push('\n');
+            }
+        } else {
+            File::open(path)?.read_to_string(&mut input)?;
+        }
+    }
+
     let accounts = ingest::parse_document(input.as_str())?;
     let count = accounts.len();
 
     persist_accounts(accounts)?;
     println!("Imported {count} account(s).");
     Ok(())
+}
+
+fn is_image_source(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "png" | "jpg" | "jpeg" | "webp"
+            )
+        })
 }
 
 fn persist_accounts(accounts: Vec<Account>) -> Result<(), Box<dyn Error>> {
@@ -262,8 +292,8 @@ fn print_help() {
     println!("  otpick status      Show vault and session state");
     println!("  otpick list        List account labels without exposing codes");
     println!("  otpick add         Interactively add a normal SHA1/6-digit/30s TOTP");
-    println!("  otpick import FILE Import otpauth or Google Authenticator migration lines");
-    println!("  otpick import -    Import otpauth:// TOTP URI lines from stdin");
+    println!("  otpick import SRC... Import text or QR image sources (PNG/JPEG/WebP)");
+    println!("  otpick import -      Import OTP URI lines from stdin");
     println!("  otpick --help      Show this help");
     println!("  otpick --version   Show the version");
 }
