@@ -102,12 +102,10 @@ impl Vault {
         self.accounts
     }
 
-    #[allow(dead_code)] // Mutation/import wiring will call this next.
     pub fn accounts_mut(&mut self) -> &mut Vec<Account> {
         &mut self.accounts
     }
 
-    #[allow(dead_code)] // Mutation/import wiring will call this next.
     pub fn save(&mut self, path: &Path) -> Result<(), VaultError> {
         self.header.rotate_nonce()?;
         let encoded = self.encode()?;
