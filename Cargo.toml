@@ -1,0 +1,18 @@
+[package]
+name = "otpick"
+version = "0.1.0"
+edition = "2024"
+description = "A blisteringly fast one-shot TOTP picker for Linux"
+repository = "https://github.com/sguzman/otpick"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+eframe = { version = "0.36.2", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+thiserror = "2.0"
+totp-rs = { version = "6.0.0", features = ["zeroize"] }
+zeroize = "1.8"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
