@@ -10,7 +10,7 @@ The popup path is sacred. Network access, imports, backups, QR decoding, vault m
 
 ## Current state
 
-The native Rust + egui picker is wired to a real encrypted vault and can now ingest normal TOTP accounts.
+The native Rust + egui picker is wired to a real encrypted vault and can ingest normal TOTP accounts plus Google Authenticator migration payloads.
 
 The vault uses Argon2id for passphrase-derived keys and XChaCha20-Poly1305 for authenticated encryption. The expensive KDF runs only when creating or explicitly unlocking the vault. The derived 32-byte vault key is cached in the Linux session keyring, so each disposable picker process can retrieve it without keeping an OTPick daemon resident.
 
@@ -30,7 +30,7 @@ Add a normal account interactively:
 
     otpick add
 
-Or import one or more standard otpauth TOTP URIs from a text file:
+Or import one or more standard otpauth TOTP URIs or Google Authenticator migration payloads from a text file:
 
     otpick import accounts.txt
 
@@ -63,7 +63,7 @@ If the vault is locked, the picker tells the user to run otpick unlock. Unlockin
 
 ## Ingestion
 
-The current text importer accepts standard otpauth://totp URIs with SHA1, SHA256, or SHA512, 6-8 digits, and configurable period. Missing algorithm/digits/period values default to SHA1/6/30.
+The text importer accepts standard otpauth://totp URIs with SHA1, SHA256, or SHA512, 6-8 digits, and configurable period. It also decodes Google Authenticator otpauth-migration payloads, maps supported algorithms/digit counts, rejects HOTP entries, and assembles complete multi-part export batches before writing the vault. Missing standard-URI algorithm/digits/period values default to SHA1/6/30.
 
 An import file may contain multiple URI lines. The entire import is validated before the encrypted vault is rewritten, and duplicate issuer/account identities are rejected.
 
@@ -95,7 +95,7 @@ While unlocked, the vault key is intentionally available to processes possessing
 
 ## Next
 
-The next ingestion layer is image/QR support and Google Authenticator migration payloads, including multi-QR exports. After those are reliable, startup/first-frame latency becomes the primary optimization target.
+The next ingestion layer is image/QR decoding so Google Authenticator export screenshots can feed the migration parser directly. After image import is reliable, startup/first-frame latency becomes the primary optimization target.
 
 ## License
 

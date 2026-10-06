@@ -196,7 +196,7 @@ fn import_accounts(source: &str) -> Result<(), Box<dyn Error>> {
     }
 
     let input = Zeroizing::new(input);
-    let accounts = ingest::parse_otpauth_document(input.as_str())?;
+    let accounts = ingest::parse_document(input.as_str())?;
     let count = accounts.len();
 
     persist_accounts(accounts)?;
@@ -262,7 +262,7 @@ fn print_help() {
     println!("  otpick status      Show vault and session state");
     println!("  otpick list        List account labels without exposing codes");
     println!("  otpick add         Interactively add a normal SHA1/6-digit/30s TOTP");
-    println!("  otpick import FILE Import otpauth:// TOTP URI lines from a file");
+    println!("  otpick import FILE Import otpauth or Google Authenticator migration lines");
     println!("  otpick import -    Import otpauth:// TOTP URI lines from stdin");
     println!("  otpick --help      Show this help");
     println!("  otpick --version   Show the version");

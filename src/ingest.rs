@@ -1,20 +1,44 @@
+use std::collections::BTreeMap;
+
+use base64::Engine as _;
+use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD};
 use percent_encoding::percent_decode_str;
+use prost::Message;
 use totp_rs::Secret;
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::model::{Account, OtpAlgorithm};
 
-const PREFIX: &str = "otpauth://totp/";
+const OTPAUTH_PREFIX: &str = "otpauth://totp/";
+const MIGRATION_PREFIX: &str = "otpauth-migration://offline?";
 
-pub fn parse_otpauth_document(input: &str) -> Result<Vec<Account>, IngestError> {
+pub fn parse_document(input: &str) -> Result<Vec<Account>, IngestError> {
     let mut accounts = Vec::new();
+    let mut batches: BTreeMap<i32, BatchAccumulator> = BTreeMap::new();
+    let mut saw_input = false;
 
     for line in input.lines().map(str::trim).filter(|line| !line.is_empty()) {
-        accounts.push(parse_otpauth(line)?);
+        saw_input = true;
+
+        if line.starts_with(OTPAUTH_PREFIX) {
+            accounts.push(parse_otpauth(line)?);
+        } else if line.starts_with(MIGRATION_PREFIX) {
+            let fragment = parse_migration(line)?;
+            batches
+                .entry(fragment.batch_id)
+                .or_insert_with(|| BatchAccumulator::new(fragment.batch_size))
+                .insert(fragment)?;
+        } else {
+            return Err(IngestError::UnsupportedUri);
+        }
     }
 
-    if accounts.is_empty() {
+    if !saw_input {
         return Err(IngestError::Empty);
+    }
+
+    for (_, batch) in batches {
+        accounts.extend(batch.finish()?);
     }
 
     Ok(accounts)
@@ -22,7 +46,7 @@ pub fn parse_otpauth_document(input: &str) -> Result<Vec<Account>, IngestError> 
 
 pub fn parse_otpauth(uri: &str) -> Result<Account, IngestError> {
     let remainder = uri
-        .strip_prefix(PREFIX)
+        .strip_prefix(OTPAUTH_PREFIX)
         .ok_or(IngestError::UnsupportedUri)?;
     let (raw_label, raw_query) = remainder.split_once('?').ok_or(IngestError::MissingQuery)?;
 
@@ -120,6 +144,119 @@ pub fn ensure_unique(existing: &[Account], incoming: &[Account]) -> Result<(), I
     Ok(())
 }
 
+fn parse_migration(uri: &str) -> Result<MigrationFragment, IngestError> {
+    let query = uri
+        .strip_prefix(MIGRATION_PREFIX)
+        .ok_or(IngestError::UnsupportedUri)?;
+
+    let mut encoded_data: Option<Zeroizing<String>> = None;
+    for pair in query.split('&').filter(|pair| !pair.is_empty()) {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        if key == "data" {
+            if encoded_data.is_some() {
+                return Err(IngestError::DuplicateParameter("data"));
+            }
+
+            let decoded = percent_decode_str(value)
+                .decode_utf8()
+                .map_err(|_| IngestError::InvalidEncoding("migration data"))?;
+            encoded_data = Some(Zeroizing::new(decoded.into_owned()));
+        }
+    }
+
+    let encoded_data = encoded_data.ok_or(IngestError::MissingMigrationData)?;
+    let raw = decode_base64(encoded_data.as_bytes())?;
+    let mut payload =
+        MigrationPayload::decode(raw.as_slice()).map_err(IngestError::MigrationProtobuf)?;
+
+    if payload.version != 1 {
+        return Err(IngestError::UnsupportedMigrationVersion(payload.version));
+    }
+    if payload.batch_size <= 0
+        || payload.batch_index < 0
+        || payload.batch_index >= payload.batch_size
+    {
+        return Err(IngestError::InvalidMigrationBatch);
+    }
+
+    let params = std::mem::take(&mut payload.otp_parameters);
+    let mut accounts = Vec::with_capacity(params.len());
+    for parameter in params {
+        accounts.push(migration_account(parameter)?);
+    }
+
+    Ok(MigrationFragment {
+        batch_id: payload.batch_id,
+        batch_size: payload.batch_size,
+        batch_index: payload.batch_index,
+        accounts,
+    })
+}
+
+fn migration_account(mut parameter: MigrationOtpParameters) -> Result<Account, IngestError> {
+    if parameter.otp_type != 2 {
+        return Err(match parameter.otp_type {
+            1 => IngestError::HotpUnsupported,
+            other => IngestError::InvalidMigrationType(other),
+        });
+    }
+
+    if parameter.secret.is_empty() {
+        return Err(IngestError::MissingSecret);
+    }
+
+    let algorithm = match parameter.algorithm {
+        0 | 1 => OtpAlgorithm::Sha1,
+        2 => OtpAlgorithm::Sha256,
+        3 => OtpAlgorithm::Sha512,
+        other => return Err(IngestError::InvalidMigrationAlgorithm(other)),
+    };
+    let digits = match parameter.digits {
+        0 | 1 => 6,
+        2 => 8,
+        other => return Err(IngestError::InvalidMigrationDigits(other)),
+    };
+
+    let mut issuer = std::mem::take(&mut parameter.issuer);
+    let mut account = std::mem::take(&mut parameter.name);
+
+    if issuer.is_empty() {
+        if let Some((inferred_issuer, inferred_account)) = account.split_once(':') {
+            issuer = inferred_issuer.to_owned();
+            account = inferred_account.to_owned();
+        }
+    } else {
+        let prefix = format!("{issuer}:");
+        if let Some(stripped) = account.strip_prefix(&prefix) {
+            account = stripped.to_owned();
+        }
+    }
+
+    if account.is_empty() {
+        return Err(IngestError::MissingAccount);
+    }
+
+    let secret = std::mem::take(&mut parameter.secret);
+    Ok(Account::new(
+        issuer,
+        account,
+        secret,
+        algorithm,
+        digits,
+        30,
+    ))
+}
+
+fn decode_base64(encoded: &[u8]) -> Result<Zeroizing<Vec<u8>>, IngestError> {
+    for engine in [&STANDARD, &STANDARD_NO_PAD, &URL_SAFE, &URL_SAFE_NO_PAD] {
+        if let Ok(decoded) = engine.decode(encoded) {
+            return Ok(Zeroizing::new(decoded));
+        }
+    }
+
+    Err(IngestError::InvalidMigrationBase64)
+}
+
 fn same_identity(left: &Account, right: &Account) -> bool {
     left.issuer == right.issuer && left.account == right.account
 }
@@ -202,9 +339,98 @@ fn nonempty_owned(value: String) -> Option<String> {
     (!value.is_empty()).then_some(value)
 }
 
+struct MigrationFragment {
+    batch_id: i32,
+    batch_size: i32,
+    batch_index: i32,
+    accounts: Vec<Account>,
+}
+
+struct BatchAccumulator {
+    batch_size: i32,
+    parts: BTreeMap<i32, Vec<Account>>,
+}
+
+impl BatchAccumulator {
+    fn new(batch_size: i32) -> Self {
+        Self {
+            batch_size,
+            parts: BTreeMap::new(),
+        }
+    }
+
+    fn insert(&mut self, fragment: MigrationFragment) -> Result<(), IngestError> {
+        if fragment.batch_size != self.batch_size {
+            return Err(IngestError::InconsistentMigrationBatch);
+        }
+        if self
+            .parts
+            .insert(fragment.batch_index, fragment.accounts)
+            .is_some()
+        {
+            return Err(IngestError::DuplicateMigrationPart(fragment.batch_index));
+        }
+        Ok(())
+    }
+
+    fn finish(mut self) -> Result<Vec<Account>, IngestError> {
+        if self.parts.len() != self.batch_size as usize {
+            return Err(IngestError::IncompleteMigrationBatch {
+                expected: self.batch_size,
+                found: self.parts.len(),
+            });
+        }
+
+        let total = self.parts.values().map(Vec::len).sum();
+        let mut accounts = Vec::with_capacity(total);
+        for index in 0..self.batch_size {
+            let part = self
+                .parts
+                .remove(&index)
+                .ok_or(IngestError::MissingMigrationPart(index))?;
+            accounts.extend(part);
+        }
+        Ok(accounts)
+    }
+}
+
+#[derive(Clone, PartialEq, Message, Zeroize)]
+#[zeroize(drop)]
+struct MigrationPayload {
+    #[prost(message, repeated, tag = "1")]
+    otp_parameters: Vec<MigrationOtpParameters>,
+    #[prost(int32, tag = "2")]
+    version: i32,
+    #[prost(int32, tag = "3")]
+    batch_size: i32,
+    #[prost(int32, tag = "4")]
+    batch_index: i32,
+    #[prost(int32, tag = "5")]
+    batch_id: i32,
+}
+
+#[derive(Clone, PartialEq, Message, Zeroize)]
+#[zeroize(drop)]
+struct MigrationOtpParameters {
+    #[prost(bytes = "vec", tag = "1")]
+    secret: Vec<u8>,
+    #[prost(string, tag = "2")]
+    name: String,
+    #[prost(string, tag = "3")]
+    issuer: String,
+    #[prost(int32, tag = "4")]
+    algorithm: i32,
+    #[prost(int32, tag = "5")]
+    digits: i32,
+    #[prost(int32, tag = "6")]
+    otp_type: i32,
+    #[prost(int64, tag = "7")]
+    counter: i64,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum IngestError {
-    #[error("only otpauth://totp URIs are supported")]
+    #[error("unsupported OTP URI")]
     UnsupportedUri,
     #[error("otpauth URI has no query string")]
     MissingQuery,
@@ -224,12 +450,38 @@ pub enum IngestError {
     InvalidPeriod(String),
     #[error("issuer in label does not match issuer query parameter")]
     IssuerMismatch,
-    #[error("duplicate otpauth parameter: {0}")]
+    #[error("duplicate OTP parameter: {0}")]
     DuplicateParameter(&'static str),
     #[error("duplicate account identity: {0}")]
     DuplicateIdentity(String),
-    #[error("import input contains no otpauth entries")]
+    #[error("import input contains no OTP entries")]
     Empty,
+    #[error("Google Authenticator migration data is missing")]
+    MissingMigrationData,
+    #[error("Google Authenticator migration data is not valid base64")]
+    InvalidMigrationBase64,
+    #[error("invalid Google Authenticator migration protobuf: {0}")]
+    MigrationProtobuf(prost::DecodeError),
+    #[error("unsupported Google Authenticator migration version {0}")]
+    UnsupportedMigrationVersion(i32),
+    #[error("invalid Google Authenticator migration batch metadata")]
+    InvalidMigrationBatch,
+    #[error("inconsistent Google Authenticator migration batch")]
+    InconsistentMigrationBatch,
+    #[error("duplicate Google Authenticator migration part {0}")]
+    DuplicateMigrationPart(i32),
+    #[error("incomplete Google Authenticator migration batch: expected {expected} parts, found {found}")]
+    IncompleteMigrationBatch { expected: i32, found: usize },
+    #[error("Google Authenticator migration batch is missing part {0}")]
+    MissingMigrationPart(i32),
+    #[error("HOTP migration entries are not supported")]
+    HotpUnsupported,
+    #[error("invalid Google Authenticator OTP type {0}")]
+    InvalidMigrationType(i32),
+    #[error("unsupported Google Authenticator algorithm id {0}")]
+    InvalidMigrationAlgorithm(i32),
+    #[error("unsupported Google Authenticator digit-count id {0}")]
+    InvalidMigrationDigits(i32),
 }
 
 #[cfg(test)]
@@ -281,7 +533,7 @@ mod tests {
             "otpauth://totp/One:a?secret={SECRET}&issuer=One\n\notpauth://totp/Two:b?secret={SECRET}&issuer=Two\n"
         );
 
-        let accounts = parse_otpauth_document(&input).unwrap();
+        let accounts = parse_document(&input).unwrap();
 
         assert_eq!(accounts.len(), 2);
         assert_eq!(accounts[0].label(), "One — a");
@@ -289,10 +541,10 @@ mod tests {
     }
 
     #[test]
-    fn rejects_hotp() {
+    fn rejects_hotp_uri() {
         let uri = format!("otpauth://hotp/alice?secret={SECRET}&counter=1");
         assert!(matches!(
-            parse_otpauth(&uri),
+            parse_document(&uri),
             Err(IngestError::UnsupportedUri)
         ));
     }
@@ -312,5 +564,134 @@ mod tests {
             ensure_unique(&[], &[first, second]),
             Err(IngestError::DuplicateIdentity(_))
         ));
+    }
+
+    #[test]
+    fn migration_single_part_imports_account() {
+        let uri = migration_uri(
+            42,
+            1,
+            0,
+            vec![migration_parameter(
+                "GitHub:alice@example.com",
+                "GitHub",
+                2,
+                2,
+                2,
+            )],
+        );
+
+        let accounts = parse_document(&uri).unwrap();
+
+        assert_eq!(accounts.len(), 1);
+        assert_eq!(accounts[0].issuer, "GitHub");
+        assert_eq!(accounts[0].account, "alice@example.com");
+        assert_eq!(accounts[0].algorithm, OtpAlgorithm::Sha256);
+        assert_eq!(accounts[0].digits, 8);
+        assert_eq!(accounts[0].period, 30);
+        assert_eq!(accounts[0].secret(), b"12345678901234567890");
+    }
+
+    #[test]
+    fn migration_infers_issuer_from_name() {
+        let uri = migration_uri(
+            9,
+            1,
+            0,
+            vec![migration_parameter("Demo Issuer:Demo Account", "", 1, 1, 2)],
+        );
+
+        let accounts = parse_document(&uri).unwrap();
+
+        assert_eq!(accounts[0].label(), "Demo Issuer — Demo Account");
+    }
+
+    #[test]
+    fn migration_assembles_multiple_parts_in_index_order() {
+        let part_one = migration_uri(
+            77,
+            2,
+            1,
+            vec![migration_parameter("Two:b", "Two", 1, 1, 2)],
+        );
+        let part_zero = migration_uri(
+            77,
+            2,
+            0,
+            vec![migration_parameter("One:a", "One", 1, 1, 2)],
+        );
+
+        let accounts = parse_document(&format!("{part_one}\n{part_zero}")).unwrap();
+
+        assert_eq!(accounts.len(), 2);
+        assert_eq!(accounts[0].label(), "One — a");
+        assert_eq!(accounts[1].label(), "Two — b");
+    }
+
+    #[test]
+    fn migration_rejects_incomplete_batch() {
+        let uri = migration_uri(
+            77,
+            2,
+            0,
+            vec![migration_parameter("One:a", "One", 1, 1, 2)],
+        );
+
+        assert!(matches!(
+            parse_document(&uri),
+            Err(IngestError::IncompleteMigrationBatch { .. })
+        ));
+    }
+
+    #[test]
+    fn migration_rejects_hotp_entry() {
+        let uri = migration_uri(
+            77,
+            1,
+            0,
+            vec![migration_parameter("One:a", "One", 1, 1, 1)],
+        );
+
+        assert!(matches!(
+            parse_document(&uri),
+            Err(IngestError::HotpUnsupported)
+        ));
+    }
+
+    fn migration_parameter(
+        name: &str,
+        issuer: &str,
+        algorithm: i32,
+        digits: i32,
+        otp_type: i32,
+    ) -> MigrationOtpParameters {
+        MigrationOtpParameters {
+            secret: b"12345678901234567890".to_vec(),
+            name: name.to_owned(),
+            issuer: issuer.to_owned(),
+            algorithm,
+            digits,
+            otp_type,
+            counter: 0,
+        }
+    }
+
+    fn migration_uri(
+        batch_id: i32,
+        batch_size: i32,
+        batch_index: i32,
+        otp_parameters: Vec<MigrationOtpParameters>,
+    ) -> String {
+        let payload = MigrationPayload {
+            otp_parameters,
+            version: 1,
+            batch_size,
+            batch_index,
+            batch_id,
+        };
+        let encoded = STANDARD.encode(payload.encode_to_vec());
+        let encoded = encoded.replace('+', "%2B").replace('/', "%2F").replace('=', "%3D");
+
+        format!("{MIGRATION_PREFIX}data={encoded}")
     }
 }
