@@ -237,14 +237,7 @@ fn migration_account(mut parameter: MigrationOtpParameters) -> Result<Account, I
     }
 
     let secret = std::mem::take(&mut parameter.secret);
-    Ok(Account::new(
-        issuer,
-        account,
-        secret,
-        algorithm,
-        digits,
-        30,
-    ))
+    Ok(Account::new(issuer, account, secret, algorithm, digits, 30))
 }
 
 fn decode_base64(encoded: &[u8]) -> Result<Zeroizing<Vec<u8>>, IngestError> {
@@ -470,7 +463,9 @@ pub enum IngestError {
     InconsistentMigrationBatch,
     #[error("duplicate Google Authenticator migration part {0}")]
     DuplicateMigrationPart(i32),
-    #[error("incomplete Google Authenticator migration batch: expected {expected} parts, found {found}")]
+    #[error(
+        "incomplete Google Authenticator migration batch: expected {expected} parts, found {found}"
+    )]
     IncompleteMigrationBatch { expected: i32, found: usize },
     #[error("Google Authenticator migration batch is missing part {0}")]
     MissingMigrationPart(i32),
@@ -608,18 +603,8 @@ mod tests {
 
     #[test]
     fn migration_assembles_multiple_parts_in_index_order() {
-        let part_one = migration_uri(
-            77,
-            2,
-            1,
-            vec![migration_parameter("Two:b", "Two", 1, 1, 2)],
-        );
-        let part_zero = migration_uri(
-            77,
-            2,
-            0,
-            vec![migration_parameter("One:a", "One", 1, 1, 2)],
-        );
+        let part_one = migration_uri(77, 2, 1, vec![migration_parameter("Two:b", "Two", 1, 1, 2)]);
+        let part_zero = migration_uri(77, 2, 0, vec![migration_parameter("One:a", "One", 1, 1, 2)]);
 
         let accounts = parse_document(&format!("{part_one}\n{part_zero}")).unwrap();
 
@@ -630,12 +615,7 @@ mod tests {
 
     #[test]
     fn migration_rejects_incomplete_batch() {
-        let uri = migration_uri(
-            77,
-            2,
-            0,
-            vec![migration_parameter("One:a", "One", 1, 1, 2)],
-        );
+        let uri = migration_uri(77, 2, 0, vec![migration_parameter("One:a", "One", 1, 1, 2)]);
 
         assert!(matches!(
             parse_document(&uri),
@@ -645,12 +625,7 @@ mod tests {
 
     #[test]
     fn migration_rejects_hotp_entry() {
-        let uri = migration_uri(
-            77,
-            1,
-            0,
-            vec![migration_parameter("One:a", "One", 1, 1, 1)],
-        );
+        let uri = migration_uri(77, 1, 0, vec![migration_parameter("One:a", "One", 1, 1, 1)]);
 
         assert!(matches!(
             parse_document(&uri),
@@ -690,7 +665,10 @@ mod tests {
             batch_id,
         };
         let encoded = STANDARD.encode(payload.encode_to_vec());
-        let encoded = encoded.replace('+', "%2B").replace('/', "%2F").replace('=', "%3D");
+        let encoded = encoded
+            .replace('+', "%2B")
+            .replace('/', "%2F")
+            .replace('=', "%3D");
 
         format!("{MIGRATION_PREFIX}data={encoded}")
     }
