@@ -1,5 +1,5 @@
 use crate::clipboard::copy_sensitive;
-use crate::model::Account;
+use crate::model::{Account, display_labels};
 use crate::search::rank_accounts;
 use crate::startup::StartupTrace;
 use crate::totp::generate_current;
@@ -7,6 +7,7 @@ use eframe::egui;
 
 pub struct PickerApp {
     accounts: Vec<Account>,
+    display_labels: Vec<String>,
     query: String,
     ranked: Vec<usize>,
     selected: usize,
@@ -28,9 +29,11 @@ impl PickerApp {
 
         startup_trace.mark("egui-app-created");
         let ranked = rank_accounts(&accounts, "");
+        let display_labels = display_labels(&accounts);
 
         Self {
             accounts,
+            display_labels,
             query: String::new(),
             ranked,
             selected: 0,
@@ -132,7 +135,7 @@ impl eframe::App for PickerApp {
                 for (row, account_index) in self.ranked.iter().copied().take(8).enumerate() {
                     let selected = row == self.selected;
                     if ui
-                        .selectable_label(selected, self.accounts[account_index].label())
+                        .selectable_label(selected, &self.display_labels[account_index])
                         .clicked()
                     {
                         self.selected = row;
