@@ -169,7 +169,7 @@ fn parse_migration(uri: &str) -> Result<MigrationFragment, IngestError> {
     let mut payload =
         MigrationPayload::decode(raw.as_slice()).map_err(IngestError::MigrationProtobuf)?;
 
-    if payload.version != 1 {
+    if !matches!(payload.version, 1 | 2) {
         return Err(IngestError::UnsupportedMigrationVersion(payload.version));
     }
     if payload.batch_size <= 0
@@ -588,6 +588,22 @@ mod tests {
     }
 
     #[test]
+    fn migration_version_two_imports_account() {
+        let uri = migration_uri_with_version(
+            2,
+            43,
+            1,
+            0,
+            vec![migration_parameter("GitHub:alice@example.com", "GitHub", 1, 1, 2)],
+        );
+
+        let accounts = parse_document(&uri).unwrap();
+
+        assert_eq!(accounts.len(), 1);
+        assert_eq!(accounts[0].label(), "GitHub — alice@example.com");
+    }
+
+    #[test]
     fn migration_infers_issuer_from_name() {
         let uri = migration_uri(
             9,
@@ -657,9 +673,19 @@ mod tests {
         batch_index: i32,
         otp_parameters: Vec<MigrationOtpParameters>,
     ) -> String {
+        migration_uri_with_version(1, batch_id, batch_size, batch_index, otp_parameters)
+    }
+
+    fn migration_uri_with_version(
+        version: i32,
+        batch_id: i32,
+        batch_size: i32,
+        batch_index: i32,
+        otp_parameters: Vec<MigrationOtpParameters>,
+    ) -> String {
         let payload = MigrationPayload {
             otp_parameters,
-            version: 1,
+            version,
             batch_size,
             batch_index,
             batch_id,
