@@ -121,7 +121,7 @@ jobs:
 
           awk -v version="$version" '
             index($0, "## [" version "]") == 1 { capture=1; next }
-            capture && /^## [/ { exit }
+            capture && index($0, "## [") == 1 { exit }
             capture { print }
           ' CHANGELOG.md >release-notes.md
 
