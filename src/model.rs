@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
@@ -50,5 +52,55 @@ impl Account {
         } else {
             format!("{} — {}", self.issuer, self.account)
         }
+    }
+}
+
+
+pub fn display_labels(accounts: &[Account]) -> Vec<String> {
+    let mut seen: HashMap<String, usize> = HashMap::new();
+
+    accounts
+        .iter()
+        .map(|account| {
+            let label = account.label();
+            let count = seen.entry(label.clone()).or_insert(0);
+            *count += 1;
+
+            if *count == 1 {
+                label
+            } else {
+                format!("{label} [{}]", *count)
+            }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn account(secret: u8) -> Account {
+        Account::new(
+            "Discord",
+            "user@example.test",
+            vec![secret; 20],
+            OtpAlgorithm::Sha1,
+            6,
+            30,
+        )
+    }
+
+    #[test]
+    fn duplicate_visible_labels_get_stable_suffixes() {
+        let labels = display_labels(&[account(1), account(2), account(3)]);
+
+        assert_eq!(
+            labels,
+            vec![
+                "Discord — user@example.test",
+                "Discord — user@example.test [2]",
+                "Discord — user@example.test [3]",
+            ]
+        );
     }
 }
