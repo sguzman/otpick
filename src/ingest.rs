@@ -128,20 +128,21 @@ pub fn account_from_base32(
     ))
 }
 
-pub fn ensure_unique(existing: &[Account], incoming: &[Account]) -> Result<(), IngestError> {
-    for (index, candidate) in incoming.iter().enumerate() {
-        if existing
+pub fn deduplicate_accounts(existing: &[Account], incoming: Vec<Account>) -> Vec<Account> {
+    let mut unique: Vec<Account> = Vec::with_capacity(incoming.len());
+
+    for candidate in incoming {
+        let already_present = existing
             .iter()
-            .any(|account| same_identity(account, candidate))
-            || incoming[..index]
-                .iter()
-                .any(|account| same_identity(account, candidate))
-        {
-            return Err(IngestError::DuplicateIdentity(candidate.label()));
+            .chain(unique.iter())
+            .any(|account| same_credential(account, &candidate));
+
+        if !already_present {
+            unique.push(candidate);
         }
     }
 
-    Ok(())
+    unique
 }
 
 fn parse_migration(uri: &str) -> Result<MigrationFragment, IngestError> {
@@ -250,8 +251,13 @@ fn decode_base64(encoded: &[u8]) -> Result<Zeroizing<Vec<u8>>, IngestError> {
     Err(IngestError::InvalidMigrationBase64)
 }
 
-fn same_identity(left: &Account, right: &Account) -> bool {
-    left.issuer == right.issuer && left.account == right.account
+fn same_credential(left: &Account, right: &Account) -> bool {
+    left.issuer == right.issuer
+        && left.account == right.account
+        && left.algorithm == right.algorithm
+        && left.digits == right.digits
+        && left.period == right.period
+        && left.secret() == right.secret()
 }
 
 fn parse_algorithm(value: &str) -> Result<OtpAlgorithm, IngestError> {
@@ -445,8 +451,6 @@ pub enum IngestError {
     IssuerMismatch,
     #[error("duplicate OTP parameter: {0}")]
     DuplicateParameter(&'static str),
-    #[error("duplicate account identity: {0}")]
-    DuplicateIdentity(String),
     #[error("import input contains no OTP entries")]
     Empty,
     #[error("Google Authenticator migration data is missing")]
@@ -545,7 +549,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_duplicate_identity() {
+    fn deduplicates_exact_credentials() {
         let first = parse_otpauth(&format!(
             "otpauth://totp/GitHub:alice?secret={SECRET}&issuer=GitHub"
         ))
@@ -555,10 +559,19 @@ mod tests {
         ))
         .unwrap();
 
-        assert!(matches!(
-            ensure_unique(&[], &[first, second]),
-            Err(IngestError::DuplicateIdentity(_))
-        ));
+        let accounts = deduplicate_accounts(&[], vec![first, second]);
+
+        assert_eq!(accounts.len(), 1);
+    }
+
+    #[test]
+    fn preserves_same_identity_with_different_secret() {
+        let first = Account::new("GitHub", "alice", vec![1, 2, 3], OtpAlgorithm::Sha1, 6, 30);
+        let second = Account::new("GitHub", "alice", vec![4, 5, 6], OtpAlgorithm::Sha1, 6, 30);
+
+        let accounts = deduplicate_accounts(&[], vec![first, second]);
+
+        assert_eq!(accounts.len(), 2);
     }
 
     #[test]
