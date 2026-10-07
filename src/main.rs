@@ -208,8 +208,11 @@ fn add_account() -> Result<(), Box<dyn Error>> {
     let secret = Zeroizing::new(rpassword::prompt_password("Base32 TOTP secret: ")?);
 
     let account = ingest::account_from_base32(issuer, account_name, secret.as_str())?;
-    persist_accounts(vec![account])?;
-    println!("Added account.");
+    if persist_accounts(vec![account])? == 0 {
+        println!("Account already exists.");
+    } else {
+        println!("Added account.");
+    }
     Ok(())
 }
 
@@ -259,9 +262,8 @@ fn import_accounts(sources: &[String]) -> Result<(), Box<dyn Error>> {
     }
 
     let accounts = ingest::parse_document(input.as_str())?;
-    let count = accounts.len();
+    let count = persist_accounts(accounts)?;
 
-    persist_accounts(accounts)?;
     println!("Imported {count} account(s).");
     Ok(())
 }
@@ -277,13 +279,17 @@ fn is_image_source(path: &Path) -> bool {
         })
 }
 
-fn persist_accounts(accounts: Vec<Account>) -> Result<(), Box<dyn Error>> {
+fn persist_accounts(accounts: Vec<Account>) -> Result<usize, Box<dyn Error>> {
     let (path, mut vault) = open_unlocked_vault()?;
-    ingest::ensure_unique(vault.accounts(), &accounts)?;
+    let accounts = ingest::deduplicate_accounts(vault.accounts(), accounts);
+    let count = accounts.len();
 
-    vault.accounts_mut().extend(accounts);
-    vault.save(&path)?;
-    Ok(())
+    if count > 0 {
+        vault.accounts_mut().extend(accounts);
+        vault.save(&path)?;
+    }
+
+    Ok(count)
 }
 
 fn open_unlocked_vault() -> Result<(PathBuf, Vault), Box<dyn Error>> {
