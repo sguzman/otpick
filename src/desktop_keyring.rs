@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use secret_service::blocking::SecretService;
 use secret_service::EncryptionType;
+use secret_service::blocking::SecretService;
 use zeroize::Zeroize;
 
 use crate::vault::VaultKey;
@@ -77,11 +77,7 @@ pub fn exists(vault_path: &Path) -> Result<bool, DesktopKeyringError> {
 }
 
 fn attributes(vault: &str) -> HashMap<&str, &str> {
-    HashMap::from([
-        ("application", APP),
-        ("kind", KIND),
-        ("vault", vault),
-    ])
+    HashMap::from([("application", APP), ("kind", KIND), ("vault", vault)])
 }
 
 fn vault_id(path: &Path) -> String {
