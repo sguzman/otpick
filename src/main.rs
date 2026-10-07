@@ -197,7 +197,7 @@ fn unlock_vault() -> Result<(), Box<dyn Error>> {
     let path = paths::vault_path()?;
     session::clear_manual_lock()?;
 
-    if let Some(key) = desktop_keyring::load(&path)? {
+    if let Ok(Some(key)) = desktop_keyring::load(&path) {
         match Vault::open_with_key(&path, key) {
             Ok(vault) => {
                 session::store(vault.key())?;
@@ -218,14 +218,9 @@ fn unlock_vault() -> Result<(), Box<dyn Error>> {
 }
 
 fn lock_vault() -> Result<(), Box<dyn Error>> {
-    let was_unlocked = session::clear()?;
+    session::clear()?;
     session::mark_locked()?;
-
-    if was_unlocked {
-        println!("Locked for this login session.");
-    } else {
-        println!("Locked for this login session.");
-    }
+    println!("Locked for this login session.");
     Ok(())
 }
 
@@ -393,8 +388,9 @@ fn load_vault_key(path: &Path) -> Result<Option<vault::VaultKey>, Box<dyn Error>
         return Ok(None);
     }
 
-    let Some(key) = desktop_keyring::load(path)? else {
-        return Ok(None);
+    let key = match desktop_keyring::load(path) {
+        Ok(Some(key)) => key,
+        Ok(None) | Err(_) => return Ok(None),
     };
 
     session::store(&key)?;
