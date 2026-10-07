@@ -594,13 +594,13 @@ mod tests {
             43,
             1,
             0,
-            vec![migration_parameter("GitHub:alice@example.com", "GitHub", 1, 1, 2)],
+            vec![migration_parameter("G:a", "G", 1, 1, 2)],
         );
 
         let accounts = parse_document(&uri).unwrap();
 
         assert_eq!(accounts.len(), 1);
-        assert_eq!(accounts[0].label(), "GitHub — alice@example.com");
+        assert_eq!(accounts[0].label(), "G — a");
     }
 
     #[test]
