@@ -589,13 +589,8 @@ mod tests {
 
     #[test]
     fn migration_version_two_imports_account() {
-        let uri = migration_uri_with_version(
-            2,
-            43,
-            1,
-            0,
-            vec![migration_parameter("G:a", "G", 1, 1, 2)],
-        );
+        let uri =
+            migration_uri_with_version(2, 43, 1, 0, vec![migration_parameter("G:a", "G", 1, 1, 2)]);
 
         let accounts = parse_document(&uri).unwrap();
 
