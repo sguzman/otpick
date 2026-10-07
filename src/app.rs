@@ -28,18 +28,15 @@ impl PickerApp {
         cc.egui_ctx.set_visuals(egui::Visuals::dark());
 
         let mut style = (*cc.egui_ctx.style()).clone();
-        style.text_styles.insert(
-            egui::TextStyle::Body,
-            egui::FontId::proportional(18.0),
-        );
-        style.text_styles.insert(
-            egui::TextStyle::Button,
-            egui::FontId::proportional(18.0),
-        );
-        style.text_styles.insert(
-            egui::TextStyle::Small,
-            egui::FontId::proportional(15.0),
-        );
+        style
+            .text_styles
+            .insert(egui::TextStyle::Body, egui::FontId::proportional(18.0));
+        style
+            .text_styles
+            .insert(egui::TextStyle::Button, egui::FontId::proportional(18.0));
+        style
+            .text_styles
+            .insert(egui::TextStyle::Small, egui::FontId::proportional(15.0));
         cc.egui_ctx.set_style(style);
 
         startup_trace.mark("egui-app-created");
