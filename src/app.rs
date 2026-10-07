@@ -27,6 +27,21 @@ impl PickerApp {
     ) -> Self {
         cc.egui_ctx.set_visuals(egui::Visuals::dark());
 
+        let mut style = (*cc.egui_ctx.style()).clone();
+        style.text_styles.insert(
+            egui::TextStyle::Body,
+            egui::FontId::proportional(18.0),
+        );
+        style.text_styles.insert(
+            egui::TextStyle::Button,
+            egui::FontId::proportional(18.0),
+        );
+        style.text_styles.insert(
+            egui::TextStyle::Small,
+            egui::FontId::proportional(15.0),
+        );
+        cc.egui_ctx.set_style(style);
+
         startup_trace.mark("egui-app-created");
         let ranked = rank_accounts(&accounts, "");
         let display_labels = display_labels(&accounts);
@@ -69,9 +84,8 @@ impl PickerApp {
             return;
         };
 
-        let result = generate_current(&self.accounts[account_index])
-            .map_err(|error| error.to_string())
-            .and_then(|code| copy_sensitive(&code).map_err(|error| error.to_string()));
+        let code = generate_current(&self.accounts[account_index]);
+        let result = copy_sensitive(&code).map_err(|error| error.to_string());
 
         match result {
             Ok(()) => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
