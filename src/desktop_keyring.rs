@@ -85,7 +85,10 @@ fn attributes(vault: &str) -> HashMap<&str, &str> {
 }
 
 fn vault_id(path: &Path) -> String {
-    path.to_string_lossy().into_owned()
+    path.canonicalize()
+        .unwrap_or_else(|_| path.to_path_buf())
+        .to_string_lossy()
+        .into_owned()
 }
 
 fn decode_key(secret: &[u8]) -> Result<VaultKey, DesktopKeyringError> {
