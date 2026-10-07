@@ -4,6 +4,7 @@ use zeroize::Zeroize;
 use crate::vault::VaultKey;
 
 const KEY_DESCRIPTION: &str = "otpick:vault-key:v1";
+const LOCK_DESCRIPTION: &str = "otpick:manual-lock:v1";
 const KEY_LEN: usize = 32;
 
 #[derive(Debug, thiserror::Error)]
@@ -43,13 +44,41 @@ pub fn store(key: &VaultKey) -> Result<(), SessionError> {
         .posessor(Permission::ALL)
         .build();
     stored.set_perms(permissions)?;
+    clear_manual_lock()?;
 
     Ok(())
 }
 
-pub fn clear() -> Result<bool, SessionError> {
+pub fn mark_locked() -> Result<(), SessionError> {
     let ring = session_ring()?;
-    let key = match ring.search(KEY_DESCRIPTION) {
+    let stored = ring.add_key(LOCK_DESCRIPTION, b"1")?;
+    let permissions = KeyPermissionsBuilder::builder()
+        .posessor(Permission::ALL)
+        .build();
+    stored.set_perms(permissions)?;
+    Ok(())
+}
+
+pub fn is_manually_locked() -> Result<bool, SessionError> {
+    let ring = session_ring()?;
+    match ring.search(LOCK_DESCRIPTION) {
+        Ok(_) => Ok(true),
+        Err(KeyError::KeyDoesNotExist | KeyError::MissingFileOrDirectory) => Ok(false),
+        Err(error) => Err(error.into()),
+    }
+}
+
+pub fn clear_manual_lock() -> Result<bool, SessionError> {
+    invalidate(LOCK_DESCRIPTION)
+}
+
+pub fn clear() -> Result<bool, SessionError> {
+    invalidate(KEY_DESCRIPTION)
+}
+
+fn invalidate(description: &str) -> Result<bool, SessionError> {
+    let ring = session_ring()?;
+    let key = match ring.search(description) {
         Ok(key) => key,
         Err(KeyError::KeyDoesNotExist | KeyError::MissingFileOrDirectory) => return Ok(false),
         Err(error) => return Err(error.into()),
