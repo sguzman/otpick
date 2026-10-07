@@ -1,6 +1,7 @@
 mod app;
 mod backup;
 mod clipboard;
+mod desktop_keyring;
 mod ingest;
 mod model;
 mod paths;
@@ -41,6 +42,30 @@ fn run(startup_trace: &startup::StartupTrace) -> Result<(), Box<dyn Error>> {
         Some("init") => init_vault()?,
         Some("unlock") => unlock_vault()?,
         Some("lock") => lock_vault()?,
+        Some("keyring") => match args.next().as_deref() {
+            Some("enable") => {
+                ensure_no_extra_args(&mut args, "keyring enable")?;
+                enable_desktop_keyring()?;
+            }
+            Some("disable") => {
+                ensure_no_extra_args(&mut args, "keyring disable")?;
+                disable_desktop_keyring()?;
+            }
+            Some(other) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("unknown keyring command: {other}"),
+                )
+                .into());
+            }
+            None => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "keyring requires enable or disable",
+                )
+                .into());
+            }
+        },
         Some("status") => status()?,
         Some("list") => list_accounts()?,
         Some("add") => add_account()?,
@@ -125,12 +150,15 @@ fn load_picker_accounts(startup_trace: &startup::StartupTrace) -> (Vec<Account>,
     }
 
     startup_trace.mark("vault-path-ready");
-    let key = match session::load() {
+    let key = match load_vault_key(&path) {
         Ok(Some(key)) => key,
         Ok(None) => {
             return (
                 Vec::new(),
-                Some("Vault locked. Run otpick unlock once for this login session.".to_owned()),
+                Some(
+                    "Vault locked. Run otpick unlock, or enable desktop keyring integration once."
+                        .to_owned(),
+                ),
             );
         }
         Err(error) => return (Vec::new(), Some(error.to_string())),
@@ -167,19 +195,64 @@ fn init_vault() -> Result<(), Box<dyn Error>> {
 
 fn unlock_vault() -> Result<(), Box<dyn Error>> {
     let path = paths::vault_path()?;
+    session::clear_manual_lock()?;
+
+    if let Some(key) = desktop_keyring::load(&path)? {
+        match Vault::open_with_key(&path, key) {
+            Ok(vault) => {
+                session::store(vault.key())?;
+                println!("Unlocked from desktop keyring for this login session.");
+                return Ok(());
+            }
+            Err(_) => {
+                session::clear()?;
+            }
+        }
+    }
+
     let passphrase = Zeroizing::new(rpassword::prompt_password("OTPick passphrase: ")?);
     let vault = Vault::unlock(&path, passphrase.as_bytes())?;
-
     session::store(vault.key())?;
     println!("Unlocked for this login session.");
     Ok(())
 }
 
 fn lock_vault() -> Result<(), Box<dyn Error>> {
-    if session::clear()? {
-        println!("Locked.");
+    let was_unlocked = session::clear()?;
+    session::mark_locked()?;
+
+    if was_unlocked {
+        println!("Locked for this login session.");
     } else {
-        println!("Already locked.");
+        println!("Locked for this login session.");
+    }
+    Ok(())
+}
+
+fn enable_desktop_keyring() -> Result<(), Box<dyn Error>> {
+    let path = paths::vault_path()?;
+
+    let vault = match session::load()? {
+        Some(key) => Vault::open_with_key(&path, key)?,
+        None => {
+            let passphrase = Zeroizing::new(rpassword::prompt_password("OTPick passphrase: ")?);
+            let vault = Vault::unlock(&path, passphrase.as_bytes())?;
+            session::store(vault.key())?;
+            vault
+        }
+    };
+
+    desktop_keyring::store(&path, vault.key())?;
+    println!("Desktop keyring integration enabled.");
+    Ok(())
+}
+
+fn disable_desktop_keyring() -> Result<(), Box<dyn Error>> {
+    let path = paths::vault_path()?;
+    if desktop_keyring::remove(&path)? {
+        println!("Desktop keyring integration disabled.");
+    } else {
+        println!("Desktop keyring integration was not enabled.");
     }
     Ok(())
 }
@@ -189,6 +262,13 @@ fn status() -> Result<(), Box<dyn Error>> {
     println!("Vault: {}", path.display());
     println!("Exists: {}", path.exists());
     println!("Session unlocked: {}", session::load()?.is_some());
+    println!("Manual session lock: {}", session::is_manually_locked()?);
+
+    match desktop_keyring::exists(&path) {
+        Ok(enabled) => println!("Desktop keyring enabled: {enabled}"),
+        Err(error) => println!("Desktop keyring: unavailable ({error})"),
+    }
+
     Ok(())
 }
 
@@ -294,7 +374,7 @@ fn persist_accounts(accounts: Vec<Account>) -> Result<usize, Box<dyn Error>> {
 
 fn open_unlocked_vault() -> Result<(PathBuf, Vault), Box<dyn Error>> {
     let path = paths::vault_path()?;
-    let key = session::load()?.ok_or_else(|| {
+    let key = load_vault_key(&path)?.ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::PermissionDenied,
             "vault is locked; run otpick unlock",
@@ -302,6 +382,38 @@ fn open_unlocked_vault() -> Result<(PathBuf, Vault), Box<dyn Error>> {
     })?;
     let vault = Vault::open_with_key(&path, key)?;
     Ok((path, vault))
+}
+
+fn load_vault_key(path: &Path) -> Result<Option<vault::VaultKey>, Box<dyn Error>> {
+    if let Some(key) = session::load()? {
+        return Ok(Some(key));
+    }
+
+    if session::is_manually_locked()? {
+        return Ok(None);
+    }
+
+    let Some(key) = desktop_keyring::load(path)? else {
+        return Ok(None);
+    };
+
+    session::store(&key)?;
+    Ok(Some(key))
+}
+
+fn ensure_no_extra_args(
+    args: &mut impl Iterator<Item = String>,
+    command: &str,
+) -> Result<(), Box<dyn Error>> {
+    if args.next().is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{command} accepts no additional arguments"),
+        )
+        .into());
+    }
+
+    Ok(())
 }
 
 fn prompt_line(prompt: &str) -> io::Result<String> {
@@ -337,8 +449,10 @@ fn print_help() {
     println!("  otpick             Open the picker");
     println!("  otpick init        Create an encrypted vault and unlock it");
     println!("  otpick unlock      Unlock the vault for this login session");
-    println!("  otpick lock        Remove the session key");
-    println!("  otpick status      Show vault and session state");
+    println!("  otpick lock        Lock OTPick for this login session");
+    println!("  otpick keyring enable  Store the vault key in desktop Secret Service");
+    println!("  otpick keyring disable Remove the persistent desktop-keyring copy");
+    println!("  otpick status      Show vault, session, and desktop-keyring state");
     println!("  otpick list        List account labels without exposing codes");
     println!("  otpick add         Interactively add a normal SHA1/6-digit/30s TOTP");
     println!("  otpick backup [DIR] Snapshot the encrypted vault");
