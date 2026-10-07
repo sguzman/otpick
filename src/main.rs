@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 
 use app::PickerApp;
 use eframe::egui;
-use model::Account;
+use model::{Account, display_labels};
 use vault::Vault;
 use zeroize::Zeroizing;
 
@@ -195,8 +195,8 @@ fn status() -> Result<(), Box<dyn Error>> {
 fn list_accounts() -> Result<(), Box<dyn Error>> {
     let (_, vault) = open_unlocked_vault()?;
 
-    for account in vault.accounts() {
-        println!("{}", account.label());
+    for label in display_labels(vault.accounts()) {
+        println!("{label}");
     }
 
     Ok(())
