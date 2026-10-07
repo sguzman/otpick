@@ -1,18 +1,42 @@
-name: ci
+name: CI
 
 on:
   push:
+    branches: [main]
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "src/**"
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/release.yml"
   pull_request:
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "src/**"
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: otpick-ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   rust:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+
       - name: Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
+          sudo apt-get install -y --no-install-recommends \
             libgl1-mesa-dev \
             libwayland-dev \
             libx11-dev \
@@ -20,15 +44,24 @@ jobs:
             libxkbcommon-x11-dev \
             libxcb-render0-dev \
             libxcb-shape0-dev \
-            libxcb-xfixes0-dev
+            libxcb-xfixes0-dev \
+            pkg-config
+
       - name: Format
         run: cargo fmt --all -- --check
+
+      - name: Check
+        run: cargo check --locked
+
       - name: Test
-        run: cargo test --all-targets
+        run: cargo test --locked --all-targets
+
       - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --locked --all-targets -- -D warnings
+
       - name: Release build
-        run: cargo build --release
+        run: cargo build --release --locked
+
       - name: Release binary size
         run: |
           bytes="$(stat -c '%s' target/release/otpick)"

@@ -1,0 +1,158 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: otpick-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out exact commit
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release identity
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(awk -F'"' '/^version = / { print $2; exit }' Cargo.toml)"
+          subject="$(git log -1 --pretty=%s)"
+          prefix="chore(release): prepare "
+
+          if [[ "$subject" != "$prefix"* ]]; then
+            echo "should_release=false" >>"$GITHUB_OUTPUT"
+            echo "ordinary main commit; no release"
+            exit 0
+          fi
+
+          expected="${prefix}${version}"
+          if [[ "$subject" != "$expected" ]]; then
+            echo "release commit subject mismatch" >&2
+            echo "expected: $expected" >&2
+            echo "actual:   $subject" >&2
+            exit 1
+          fi
+
+          tag="v${version}"
+          remote_sha="$(git ls-remote origin "refs/tags/$tag" | awk '{print $1}')"
+          if [[ -n "$remote_sha" && "$remote_sha" != "$GITHUB_SHA" ]]; then
+            echo "$tag already points to $remote_sha, not $GITHUB_SHA" >&2
+            exit 1
+          fi
+
+          echo "should_release=true" >>"$GITHUB_OUTPUT"
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+          echo "tag=$tag" >>"$GITHUB_OUTPUT"
+
+      - name: Linux build dependencies
+        if: steps.release.outputs.should_release == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1-mesa-dev \
+            libwayland-dev \
+            libx11-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            pkg-config
+
+      - name: Format
+        if: steps.release.outputs.should_release == 'true'
+        run: cargo fmt --all -- --check
+
+      - name: Check
+        if: steps.release.outputs.should_release == 'true'
+        run: cargo check --locked
+
+      - name: Test
+        if: steps.release.outputs.should_release == 'true'
+        run: cargo test --locked --all-targets
+
+      - name: Clippy
+        if: steps.release.outputs.should_release == 'true'
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Build release binary
+        if: steps.release.outputs.should_release == 'true'
+        run: cargo build --release --locked --bin otpick
+
+      - name: Package versioned executable
+        if: steps.release.outputs.should_release == 'true'
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.release.outputs.version }}"
+          target="x86_64-unknown-linux-gnu"
+          stem="otpick-v${version}-${target}"
+
+          mkdir -p "dist/${stem}"
+          install -m 0755 target/release/otpick "dist/${stem}/otpick"
+          tar -C dist -czf "dist/${stem}.tar.gz" "${stem}"
+          sha256sum "dist/${stem}.tar.gz" >"dist/${stem}.tar.gz.sha256"
+
+          echo "archive=${stem}.tar.gz" >>"$GITHUB_OUTPUT"
+          echo "checksum=${stem}.tar.gz.sha256" >>"$GITHUB_OUTPUT"
+
+          file target/release/otpick
+          stat -c 'release_bytes=%s' target/release/otpick
+
+      - name: Build release notes
+        if: steps.release.outputs.should_release == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.release.outputs.version }}"
+
+          awk -v version="$version" '
+            index($0, "## [" version "]") == 1 { capture=1; next }
+            capture && /^## [/ { exit }
+            capture { print }
+          ' CHANGELOG.md >release-notes.md
+
+          cat >>release-notes.md <<'EOF'
+
+          ### Distribution
+
+          The attached x86_64 GNU/Linux archive contains the stripped `otpick` executable built from this exact release commit.
+
+          Runtime notes: Linux; `wl-copy` / `wl-clipboard` is required for the Wayland clipboard path. A freedesktop Secret Service implementation is optional and only used when desktop-keyring integration is enabled.
+          EOF
+
+      - name: Publish GitHub Release
+        if: steps.release.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.release.outputs.tag }}"
+          archive="dist/${{ steps.package.outputs.archive }}"
+          checksum="dist/${{ steps.package.outputs.checksum }}"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "$tag is already published; nothing to do"
+            exit 0
+          fi
+
+          gh release create "$tag" \
+            "$archive#Linux x86_64 (glibc)" \
+            "$checksum#SHA-256" \
+            --target "$GITHUB_SHA" \
+            --title "OTPick $tag" \
+            --notes-file release-notes.md

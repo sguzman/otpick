@@ -1,0 +1,17 @@
+# cargo-release owns future version/changelog preparation.
+# GitHub Actions owns tag creation and GitHub Release publication so the
+# published tag is the exact commit that passed release validation.
+
+allow-branch = ["main"]
+consolidate-commits = true
+publish = false
+tag = false
+push = true
+push-remote = "origin"
+shared-version = true
+pre-release-commit-message = "chore(release): prepare {{version}}"
+pre-release-hook = [
+  "sh",
+  "-c",
+  "git cliff --config cliff.toml --tag v{{version}} --output CHANGELOG.md && git add CHANGELOG.md",
+]

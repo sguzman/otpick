@@ -1,6 +1,6 @@
 [package]
 name = "otpick"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 description = "A blisteringly fast one-shot TOTP picker for Linux"
 repository = "https://github.com/sguzman/otpick"
