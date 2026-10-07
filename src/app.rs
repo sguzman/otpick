@@ -27,7 +27,7 @@ impl PickerApp {
     ) -> Self {
         cc.egui_ctx.set_visuals(egui::Visuals::dark());
 
-        let mut style = (*cc.egui_ctx.style()).clone();
+        let mut style = (*cc.egui_ctx.style_of(egui::Theme::Dark)).clone();
         style
             .text_styles
             .insert(egui::TextStyle::Body, egui::FontId::proportional(18.0));
@@ -37,7 +37,7 @@ impl PickerApp {
         style
             .text_styles
             .insert(egui::TextStyle::Small, egui::FontId::proportional(15.0));
-        cc.egui_ctx.set_style(style);
+        cc.egui_ctx.set_style_of(egui::Theme::Dark, style);
 
         startup_trace.mark("egui-app-created");
         let ranked = rank_accounts(&accounts, "");
