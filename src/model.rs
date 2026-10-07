@@ -55,7 +55,6 @@ impl Account {
     }
 }
 
-
 pub fn display_labels(accounts: &[Account]) -> Vec<String> {
     let mut seen: HashMap<String, usize> = HashMap::new();
 
